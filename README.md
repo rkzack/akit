@@ -1,0 +1,290 @@
+# akit — Anthropic Kit for PHP
+
+> Lightweight PHP 8.4 toolkit for building AI-powered applications with the Anthropic API.
+
+**Zero production dependencies.** Uses only PHP's built-in `curl` and `json` extensions.
+Fully typed with PHP 8.4 features: readonly classes, enums, named arguments, and `array_find`.
+
+---
+
+## Requirements
+
+- PHP 8.4+
+- `ext-curl`
+- `ext-json`
+- An [Anthropic API key](https://console.anthropic.com/)
+
+## Installation
+
+```bash
+composer require akit/akit
+```
+
+Copy `.env.example` to `.env` and add your key:
+
+```bash
+cp .env.example .env
+# then edit .env and set ANTHROPIC_API_KEY=sk-ant-...
+```
+
+---
+
+## Quick Start
+
+```php
+<?php
+require_once 'vendor/autoload.php';
+
+// Reads ANTHROPIC_API_KEY from the environment
+$answer = akit_prompt('What is the capital of France?');
+echo $answer; // "The capital of France is Paris."
+```
+
+---
+
+## Usage
+
+### Single Prompt
+
+```php
+use Akit\Client;
+
+$client = new Client(apiKey: 'sk-ant-...');
+
+$response = $client->prompt('Explain quantum entanglement in one sentence.');
+
+echo $response->text();
+echo 'Tokens used: ' . $response->totalTokens();
+```
+
+### System Prompt
+
+```php
+$response = $client->prompt(
+    prompt: 'Write me a greeting.',
+    system: 'You are a friendly pirate. Always respond in pirate speak.',
+);
+
+echo $response; // Response::__toString() returns text
+```
+
+### Multi-turn Conversation
+
+The `Conversation` class tracks message history automatically — no need to manage arrays.
+
+```php
+$conv = $client->conversation(
+    system: 'You are a helpful coding assistant. Be concise.'
+);
+
+$r1 = $conv->say('What is a closure in PHP?');
+echo $r1->text();
+
+// Claude has full context from the previous turn
+$r2 = $conv->say('Show me an example.');
+echo $r2->text();
+
+echo 'Turns: ' . $conv->turns(); // 2
+```
+
+### Streaming
+
+Chunks arrive as they are generated rather than waiting for the full response. Ideal for
+long outputs, CLI tools, or real-time web UIs.
+
+```php
+$client->stream(
+    prompt:  'Write a short story about a robot learning to bake.',
+    onChunk: function (string $chunk): void {
+        echo $chunk;
+        // In a web context, also call ob_flush() and flush()
+    },
+);
+```
+
+### Model Selection
+
+```php
+use Akit\Model;
+
+// Use the Model enum for autocomplete / type safety
+$response = $client->prompt(
+    prompt: 'Analyse this complex problem...',
+    model:  Model::OPUS_4_7->value,
+);
+
+// Or pass the string directly
+$response = $client->prompt('Hello', model: 'claude-haiku-4-5-20251001');
+```
+
+Available models:
+
+| Enum constant       | Model ID                       |
+|---------------------|-------------------------------|
+| `Model::OPUS_4_7`   | `claude-opus-4-7`              |
+| `Model::SONNET_4_6` | `claude-sonnet-4-6` (default)  |
+| `Model::HAIKU_4_5`  | `claude-haiku-4-5-20251001`    |
+
+### Environment-based Configuration
+
+```php
+use Akit\Config;
+
+// Reads ANTHROPIC_API_KEY, optionally override model / max_tokens
+$client = new Client(Config::fromEnv(
+    model:     Model::HAIKU_4_5->value,
+    maxTokens: 512,
+));
+```
+
+### Manual Message Arrays (Advanced)
+
+```php
+use Akit\Message;
+
+$messages = [
+    Message::user('My lucky number is 7.'),
+    Message::assistant('Noted — your lucky number is 7!'),
+    Message::user('What is my lucky number times 6?'),
+];
+
+$response = $client->chat($messages, system: 'Be a helpful calculator.');
+echo $response->text(); // "42"
+```
+
+---
+
+## Global Helper Functions
+
+Helper functions wrap the shared singleton client seeded from `ANTHROPIC_API_KEY`.
+They are the fastest way to add Claude to a script.
+
+| Function | Description |
+|---|---|
+| `akit_prompt(string $prompt, ...)` | Send a prompt, get back the text string |
+| `akit_stream(string $prompt, callable $onChunk, ...)` | Stream a response |
+| `akit_chat(array $messages, ...)` | Multi-message array → `Response` |
+| `akit_client(?string $apiKey, ?string $model)` | Get or create the shared `Client` |
+
+---
+
+## API Reference
+
+### `Client`
+
+```php
+new Client(Config|string $config)
+```
+
+| Method | Signature | Returns |
+|---|---|---|
+| `prompt` | `(string $prompt, ?string $system, ?string $model, ?int $maxTokens)` | `Response` |
+| `chat` | `(Message[] $messages, ?string $system, ?string $model, ?int $maxTokens)` | `Response` |
+| `stream` | `(string\|Message[] $prompt, callable $onChunk, ?string $system, ?string $model, ?int $maxTokens)` | `void` |
+| `conversation` | `(?string $system)` | `Conversation` |
+| `config` | `()` | `Config` |
+
+### `Response`
+
+| Method | Returns | Description |
+|---|---|---|
+| `text()` | `string` | Primary text content |
+| `model()` | `string` | Model that generated the response |
+| `stopReason()` | `string` | `end_turn`, `max_tokens`, etc. |
+| `usage()` | `array` | `{input_tokens, output_tokens}` |
+| `totalTokens()` | `int` | Input + output tokens |
+| `id()` | `string` | Anthropic message ID |
+| `content()` | `array` | All raw content blocks |
+| `raw()` | `array` | Full decoded API payload |
+| `asMessage()` | `Message` | Convert to assistant `Message` |
+| `__toString()` | `string` | Alias for `text()` |
+
+### `Conversation`
+
+| Method | Returns | Description |
+|---|---|---|
+| `say(string $message, ...)` | `Response` | Send a turn, append history |
+| `messages()` | `Message[]` | Full history so far |
+| `turns()` | `int` | Number of user turns |
+| `reset()` | `void` | Clear history (keeps system prompt) |
+
+### `Config`
+
+| Property | Type | Default |
+|---|---|---|
+| `apiKey` | `string` | _(required)_ |
+| `model` | `string` | `claude-sonnet-4-6` |
+| `maxTokens` | `int` | `1024` |
+| `baseUrl` | `string` | `https://api.anthropic.com/v1` |
+| `apiVersion` | `string` | `2023-06-01` |
+| `timeout` | `int` | `30` (seconds) |
+
+---
+
+## Error Handling
+
+All exceptions extend `Akit\Exceptions\AkitException`.
+
+```php
+use Akit\Exceptions\ApiException;
+use Akit\Exceptions\AuthException;
+
+try {
+    $response = $client->prompt('Hello');
+} catch (AuthException $e) {
+    // 401 — invalid or missing API key
+    echo 'Bad API key: ' . $e->getMessage();
+} catch (ApiException $e) {
+    // Other API errors (rate limits, overload, validation, etc.)
+    echo "API error {$e->statusCode} ({$e->type}): {$e->getMessage()}";
+}
+```
+
+| Exception | HTTP Status | Cause |
+|---|---|---|
+| `AuthException` | 401 | Invalid or missing API key |
+| `ApiException` | 4xx / 5xx | Rate limit, overload, bad request, etc. |
+
+---
+
+## Running the Examples
+
+```bash
+# Install dependencies
+composer install
+
+# Copy and fill in your key
+cp .env.example .env
+
+# Run any example (load .env manually or via your shell)
+ANTHROPIC_API_KEY=sk-ant-... php examples/basic_prompt.php
+ANTHROPIC_API_KEY=sk-ant-... php examples/conversation.php
+ANTHROPIC_API_KEY=sk-ant-... php examples/streaming.php
+```
+
+---
+
+## Running Tests
+
+```bash
+# Unit tests only (no API key required)
+composer test
+
+# Include live integration tests (requires ANTHROPIC_API_KEY)
+ANTHROPIC_API_KEY=sk-ant-... ./vendor/bin/phpunit --group integration
+```
+
+---
+
+## Contributing
+
+1. Fork the repo and create a branch from `main`.
+2. Add tests for any new behaviour.
+3. Run `./vendor/bin/phpunit` and `./vendor/bin/phpstan analyse` before opening a PR.
+4. Keep it lightweight — no new production dependencies without strong justification.
+
+---
+
+## License
+
+MIT — see [LICENSE](LICENSE).
