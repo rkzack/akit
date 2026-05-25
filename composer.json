@@ -1,14 +1,14 @@
 {
-    "name": "akit/akit",
+    "name": "rkzack/akit",
     "description": "Lightweight PHP 8.4 toolkit for the Anthropic API — zero production dependencies.",
     "type": "library",
     "license": "MIT",
     "keywords": ["anthropic", "claude", "ai", "llm", "api", "toolkit"],
-    "homepage": "https://github.com/yourusername/akit",
+    "homepage": "https://github.com/rkzack/akit",
     "authors": [
         {
-            "name": "Your Name",
-            "email": "you@example.com"
+            "name": "rkzack",
+            "email": "r@zack.to"
         }
     ],
     "require": {
@@ -32,6 +32,10 @@
         "psr-4": {
             "Akit\\Tests\\": "tests/"
         }
+    },
+    "scripts": {
+        "test": "phpunit",
+        "analyse": "phpstan analyse src --level=8"
     },
     "config": {
         "sort-packages": true
